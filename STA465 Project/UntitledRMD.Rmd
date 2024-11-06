@@ -1,0 +1,101 @@
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(sf)
+library(dplyr)
+library(leaflet)
+```
+
+```{r}
+Toronto_Neighbourhoods <- st_read("Datasets/Toronto_Neighbourhoods/Toronto_Neighbourhoods.shp")
+
+schools <- read.csv("Datasets/TCDSB_Schools.csv")
+```
+
+```{r}
+schools <- schools %>%
+  mutate(coordinates = str_extract(geometry, "\\[\\s*(-?\\d+\\.\\d+),\\s*(-?\\d+\\.\\d+)\\s*\\]")) %>%
+  separate(coordinates, into = c("long", "lat"), sep = ",", convert = TRUE) %>%
+  mutate(
+    long = str_remove_all(long, "\\[|\\]"),
+    lat = str_remove_all(lat, "\\[|\\]")
+  )
+
+schools <- schools %>%
+  mutate(
+    long = as.numeric(long),
+    lat = as.numeric(lat)
+  )
+
+head(schools)
+
+```
+
+```{r}
+schools_sf <- st_as_sf(schools, coords = c("long", "lat"), crs = 4326)
+```
+
+```{r}
+leaflet_map <- leaflet() %>%
+  addTiles() %>%
+  addPolygons(data = Toronto_Neighbourhoods,
+              color = "blue",
+              fillOpacity = 0.2,
+              label = ~Neighbourhoods, 
+              group = "Neighbourhoods") %>%
+  
+  addCircleMarkers(data = schools_sf,
+                   color = "green",
+                   radius = 3,
+                   label = ~paste("School Name: ", schools$SCH_NAME, 
+                                  "School Area: ", schools$MUNICIPALITY),
+                   group = "School") %>%
+
+  addLayersControl(
+    overlayGroups = c("Neighbourhoods", "Schools"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+leaflet_map
+```
+
+```{r}
+schools_buffer <- st_buffer(schools_sf, dist = 1000)  # Buffer of 1000 meters
+leaflet_map <- leaflet_map %>%
+  addPolygons(data = schools_buffer,
+            color = "darkgreen",
+            fillOpacity = 0.05,  # Lower fill opacity to reduce visual clutter
+            weight = 1,
+            label = ~SCH_NAME,
+            group = "School Buffers")
+
+leaflet_map
+```
+
+```{r}
+# Summarizing the number of schools within each neighbourhood and their types
+# Perform spatial join between schools and neighbourhood boundaries
+schools_neighbourhood <- st_join(schools_sf, Toronto_Neighbourhoods, join = st_intersects)
+
+# Summarize the number of schools by neighbourhood and school type
+school_summary <- schools_neighbourhood %>%
+  group_by(TCDSB_LEVEL) %>%  # Removed grouping by neighbourhood due to missing attribute issue
+  summarize(Number_of_Schools = n(), .groups = 'drop')
+
+# View summary
+print(school_summary)
+
+# Calculating basic descriptive statistics to understand the distribution of school types
+school_type_summary <- schools %>%
+  group_by(TCDSB_LEVEL) %>%
+  summarize(
+    Total_Schools = n(),
+    Average_Latitude = mean(lat, na.rm = TRUE),
+    Average_Longitude = mean(long, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+# View summary statistics
+print(school_type_summary)
+
+```

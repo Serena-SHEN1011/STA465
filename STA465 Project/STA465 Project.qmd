@@ -1,0 +1,217 @@
+---
+title: "Spatial Analysis Using Toronto School and Neighbourhood Data"
+subtitle: "Proposal Report"
+author: 
+  - Ziyuan Shen
+date: November 06, 2024
+date-format: long
+format: pdf
+number-sections: true
+---
+
+```{r}
+#| include: false
+#| warning: false
+#| message: false
+
+library(tidyverse)
+library(kableExtra)
+library(tibble)
+library(dplyr)
+library(knitr)
+library(sf)
+library(leaflet)
+library(htmlwidgets)
+library(webshot2)
+library(formattable)
+library(webshot)
+```
+
+# Background/Introduction
+
+The spatial distribution of educational settings plays a critical role in determining access to quality education, especially in a diverse urban environment such as Toronto. Understanding the distribution of different types of schools across neighbourhoods can provide valuable insights into potential disparities and help identify opportunities for a more equitable distribution of resources.
+
+## Research Question
+
+How are different types of schools such as Elementary, Secondary and Adult Learning spatially distributed across Toronto's neighbourhoods, and are there notable spatial clusters or patterns in this distribution?
+
+# Data and Proposed Method
+
+## Data Description
+
+-   **TCDSB Schools Dataset:** This dataset contains information on the location of Toronto schools expressed as point data. The study area for this dataset is the entire City of Toronto, with a focus on educational facilities managed by the Toronto Catholic District School Board (TCDSB). The type of spatial data represented is point data, and the dataset contains 210 locations. Each point represents the geographic location of a school. Attributes in this dataset are shown in @tbl-sum1.
+
+```{r}
+#| echo: false
+#| eval: true
+#| warning: false
+#| message: false
+#| label: tbl-sum1
+
+school_attributes <- tribble(
+  ~Attribute, ~Description,
+  "_id", "Unique row identifier for Open Data database.",
+  "OBJECTID", "ESRI-generated ID for spatial data.",
+  "TCDSB_CODE", "School unique code",
+  "SCH_NAME", "School name",
+  "ADDRESS_FULL", "School address",
+  "MUNICIPALITY", "Municipality where the school is located",
+  "POSTAL_CODE", "Postal code of the school",
+"TCDSB_LEVEL", "School type: E–Elementary, S–Secondary, AL–Adult Learning, ADM–Administration Building",
+  "STATUS", "School status",
+  "geometry", "Geospatial information for each school, represented as point data."
+)
+
+school_attributes |>
+  kable(col.names = c("Attribute", "Description"), align = c("l", "l"), escape = FALSE, booktabs = TRUE) |>
+  kable_styling(full_width = F, position = "center", font_size = 10) |>
+  row_spec(0, bold = TRUE, color = "black", background = "lightgray") |>
+  column_spec(1, bold = TRUE, width = "15em") |>
+  column_spec(2, width = "30em") |>
+  footnote(general = "Note: Description of variables used in the Toronto school dataset.", general_title = " ")
+
+```
+
+**Toronto Neighbourhood Shapefile:** The Toronto Neighbourhood Shapefile provides polygonal data representing the boundaries of Toronto neighbourhoods. The study domain for this dataset is also the City of Toronto and the type of spatial data represented is polygonal. The dataset includes 157 neighbourhoods, each represented as a polygon that defines its geographic boundaries. Relevant attributes include:
+
+1.Neighbourhood ID: a unique identifier for each neighbourhood.
+
+2.Geographic Boundaries: spatial data representing the boundaries of each neighbourhood to assess the spatial relationship to school locations.
+
+These datasets will be used to explore the spatial distribution of schools within the defined neighbourhoods and to assess potential clusters and differences between different types of schools.
+
+## Proposed Spatial Analysis Methods
+
+### Spatial Computations:
+
+**Buffers and Proximity Analysis:** Create buffers around each school to determine its catchment areas and analyze the proximity between schools and neighbourhood boundaries. This may help me understand the spatial reach and accessibility of different school types.
+
+**Spatial Joins:** Use spatial joins to combine neighbourhood boundary data with the school point data. This will help me to evaluate how the distribution of different school types correlates with neighbourhood geographic characteristics.
+
+**Distance Calculations**: Calculate the distances between schools and the boundaries of their neighbourhoods to understand accessibility and spatial relationships better.
+
+### Spatial Statistical Analysis:
+
+**Point Pattern Analysis:** Point pattern analysis will be applied to determine whether the distribution of schools in Toronto is random, homogeneous or clustered. This included calculating nearest neighbour distances and analyzing school clustering patterns.
+
+**Moran's I:** Calculate Moran's I to assess spatial autocorrelation in the distribution of different school types. This will help determine whether the locations of specific types of schools exhibit clustering.
+
+# Summary Statistics
+
+```{r,echo=FALSE}
+Toronto_Neighbourhoods <- st_read("Datasets/Toronto_Neighbourhoods/Toronto_Neighbourhoods.shp", quiet = TRUE)
+schools <- read.csv("Datasets/TCDSB_Schools.csv")
+```
+
+For further analysis, I split the geometry column into long(longitude) and lat(latitude) columns and then removed the geometry column from the TCDSB Schools Dataset.
+
+```{r, echo=FALSE, results='hide'}
+schools <- schools %>%
+  mutate(coordinates = str_extract(geometry, "\\[\\s*(-?\\d+\\.\\d+),\\s*(-?\\d+\\.\\d+)\\s*\\]")) %>%
+  separate(coordinates, into = c("long", "lat"), sep = ",", convert = TRUE) %>%
+  mutate(
+    long = str_remove_all(long, "\\[|\\]"),
+    lat = str_remove_all(lat, "\\[|\\]")
+  )
+
+schools <- schools %>%
+  mutate(
+    long = as.numeric(long),
+    lat = as.numeric(lat)
+  )
+
+schools <- schools %>%
+  select(-geometry)
+
+schools <- schools %>%
+  select(-X_id)
+
+head(schools)
+
+formattable(schools %>% head())
+
+```
+
+I will perform an Exploratory Data Analysis (EDA) to summarize the spatial properties of the dataset.
+
+Firstly, I created a preliminary visual map as shown in @map-1 below. that overlays the location of the school and the boundaries of the Toronto neighbourhoods on the map. The map helps to illustrate the spatial distribution of schools in different neighbourhoods . The map visualization includes the following features:
+
+Neighbourhood Boundaries: Represented as polygons, showing the geographic extent of each neighbourhood.
+
+Schools: Represented as dots, showing the location of different types of schools within the neighbourhood.
+
+[Click here to view the interactive map](file:///Users/ziyuan/Desktop/STA465%20Project/leaflet_map.html)
+
+```{r, echo: false, warning=FALSE}
+#| echo: false
+#| eval: true
+#| warning: FALSE
+#| message: false
+#| label: map-1
+#| fig.cap: "Leaflet Map of Toronto Schools"
+
+# Create map
+schools_sf <- st_as_sf(schools, coords = c("long", "lat"), crs = 4326)
+
+leaflet_map <- leaflet() %>%
+  addTiles() %>%
+  addPolygons(data = Toronto_Neighbourhoods,
+              color = "blue",
+              fillOpacity = 0.2,
+              label = ~Neighbourh, 
+              group = "Neighbourhoods") %>%
+  
+  addCircleMarkers(data = schools_sf,
+                   color = "green",
+                   radius = 3,
+                   label = ~paste("School TYPE: ", schools$TCDSB_LEVEL,
+                                  "School Area: ", schools$MUNICIPALITY),
+                   group = "School") %>%
+
+  addLayersControl(
+    overlayGroups = c("Neighbourhoods", "Schools"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+# leaflet_map
+knitr::include_graphics("leaflet_map.png")  # 替换为 PNG 文件的实际完整路径
+
+
+saveWidget(leaflet_map, "leaflet_map.html", selfcontained = TRUE)
+
+#webshot("leaflet_map.html", file = "leaflet_map.png")
+```
+
+Then, I tried to summary the number of schools within each neighbourhood and their types in @tbl-sum2. There are four types of school. Calculating basic descriptive statistics to understand the distribution of different school types across neighbourhoods.
+
+```{r,echo=FALSE}
+#| echo: false
+#| eval: true
+#| warning: false
+#| message: false
+#| label: tbl-sum2
+schools_neighbourhood <- st_join(schools_sf, Toronto_Neighbourhoods, join = st_intersects)
+# 删除 geometry 列，转换为普通数据框
+school_summary_clean <- schools_neighbourhood %>%
+  st_drop_geometry()
+
+school_type_summary <- school_summary_clean %>%
+  group_by(TCDSB_LEVEL) %>%
+  summarize(Total_Schools = n(), .groups = 'drop')
+
+school_type_summary <- schools %>%
+  group_by(TCDSB_LEVEL) %>%
+  summarize(
+    Total_Schools = n(),
+    Average_Latitude = mean(lat, na.rm = TRUE),
+    Average_Longitude = mean(long, na.rm = TRUE),
+    .groups = 'drop'
+  )
+# 使用 kable() 美化 school_type_summary 表格
+knitr::kable(
+  school_type_summary,
+  caption = "Summary Statistics for School Types",
+  col.names = c("School Type", "Total Schools", "Average Latitude", "Average Longitude"),
+  align = 'c'
+)
+```
